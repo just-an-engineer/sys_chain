@@ -26,37 +26,38 @@ void close_error(unsigned long error) {
 
 int main() {
     char filename[] = "test.txt";
-    printf("filename address: %p\n", filename);
+    printf("Filename address: %p\n", filename);
     char replace_test[] = "replace!";
-    printf("replace_test address: %p\n", replace_test);
+    printf("Replace_test address: %p\n", replace_test);
     char *buffer = malloc(16);
-    printf("buffer address: %p\n\n", buffer);
+    printf("Buffer address: %p\n\n", buffer);
     unsigned long result_buf[4];
+
 
     unsigned long syscall[] = {
         2, // syscall open
         BITMAP_CREATOR(3, 1, 0), // bitmap
-        0x0, // mode
-        O_RDWR, // flags
         (unsigned long)filename, // filename
+        O_RDWR, // flags
+        0x0, // mode
         (unsigned long)open_error, // error function
         LESS_SIGNED, // condition
         0,  // condition value
 
         0, // syscall read
         BITMAP_CREATOR(3, 1, 0b1), // bitmap
-        15, // count
-        (unsigned long)buffer, // buffer
         0, // file descriptor, symbolic
+        (unsigned long)buffer, // buffer
+        15, // count
         (unsigned long)read_error, // error function
         LESS_SIGNED, // condition
         0,  // condition value
 
         1, // syscall write
         BITMAP_CREATOR(3, 1, 0b1), // bitmap
-        8, // count
-        (unsigned long)replace_test, // buffer
         0, // file descriptor, symbolic
+        (unsigned long)replace_test, // buffer
+        8, // count
         (unsigned long)write_error, // error function
         LESS_SIGNED, // condition
         0,  // condition value
@@ -69,11 +70,10 @@ int main() {
         0,  // condition value
     };
 
-    printf("bitmap #1: %ld\n", BITMAP_CREATOR(3, 1, 0));
-
     syscall_chain(sizeof(syscall)/sizeof(unsigned long), syscall, result_buf);
+    
     printf("Ran syscall\n");
-    printf("buffer contains %s\n", buffer);
+    printf("Buffer contains %s\n", buffer);
     for (int i=0; i<4; i++) {
         printf("Syscall %d gave result %ld\n", i, result_buf[i]);
     }
