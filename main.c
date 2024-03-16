@@ -35,41 +35,43 @@ int main() {
 
     unsigned long syscall[] = {
         2, // syscall open
-        (3<<16) + (1 << 8), // bitmap
+        BITMAP_CREATOR(3, 1, 0), // bitmap
         0x0, // mode
         O_RDWR, // flags
         (unsigned long)filename, // filename
         (unsigned long)open_error, // error function
-        LESS, // condition
+        LESS_SIGNED, // condition
         0,  // condition value
 
         0, // syscall read
-        (3<<16) + (1 << 8) + 0b1, // bitmap
+        BITMAP_CREATOR(3, 1, 0b1), // bitmap
         15, // count
         (unsigned long)buffer, // buffer
         0, // file descriptor, symbolic
         (unsigned long)read_error, // error function
-        LESS, // condition
+        LESS_SIGNED, // condition
         0,  // condition value
 
         1, // syscall write
-        (3<<16) + (1 << 8) + 0b1, // bitmap
+        BITMAP_CREATOR(3, 1, 0b1), // bitmap
         8, // count
         (unsigned long)replace_test, // buffer
         0, // file descriptor, symbolic
         (unsigned long)write_error, // error function
-        LESS, // condition
+        LESS_SIGNED, // condition
         0,  // condition value
 
         3, // syscall close
-        (1<<16) + (1 << 8) + 0b1, // bitmap
+        BITMAP_CREATOR(1, 1, 0b1), // bitmap
         0, // file descriptor, symbolic
         (unsigned long)close_error, // error function
-        LESS, // condition
+        LESS_SIGNED, // condition
         0,  // condition value
     };
 
-    syscall_negative_one(sizeof(syscall)/sizeof(unsigned long), syscall, result_buf);
+    printf("bitmap #1: %ld\n", BITMAP_CREATOR(3, 1, 0));
+
+    syscall_chain(sizeof(syscall)/sizeof(unsigned long), syscall, result_buf);
     printf("Ran syscall\n");
     printf("buffer contains %s\n", buffer);
     for (int i=0; i<4; i++) {
