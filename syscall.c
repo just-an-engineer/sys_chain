@@ -177,7 +177,7 @@ unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned
             printf("Testing if %ld ( when compared to %ld) is ", result, cond_val);
             switch (cond[j]) {
                 // this is where we would overwrite the rip or instruction pointer in the saved context, and return to userspace
-                #define RET_TO_USER_ERROR   if (error_func != 0x0) {goto EXIT;} \
+                #define RET_TO_USER_ERROR   if (error_func == 0x0) {goto EXIT;} \
                                             free(buffer); \
                                             memcpy(result_buffer, buffer, sizeof(unsigned long) * cur_syscall); \
                                             error_func(result); 
