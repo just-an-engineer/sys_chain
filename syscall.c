@@ -15,6 +15,8 @@
 #include "syscall.h"
 
 #define SYS_CHAIN_NUM 500
+#define NUM_ARG_SIZE_BITS (1UL << NUM_ARG_SIZE) - 1
+#define CONDITION_SIZE_BITS (1UL << CONDITION_SIZE) - 1
 
 #define SET_REGISTER(n, register) \
     if ((sym_args >> n) & 1) { \
@@ -28,22 +30,6 @@
     register = value; \
     num_args--; \
     buf_ptr++;
-
-// N bit - 3 for num_args - 3 for conditionals
-#ifdef __x86_64__
-    #define SYSCALL asm("syscall");
-    #define MAX_SYSCALL 64-3-3 
-#elif defined(__aarch64__)
-    #define SYSCALL asm("syscall");
-    #define MAX_SYSCALL 64-3-3
-    #define SYSCALL asm("svc 0");
-#elif defined(__arm__)
-    #define SYSCALL asm("syscall");
-    #define MAX_SYSCALL 32-3-3
-    #define SYSCALL asm("swi 0");
-#else
-    #error "Unsupported architecture."
-#endif
 
 
 #if defined(__x86_64__)
@@ -102,7 +88,7 @@
 #endif
 
 
-unsigned long syscall_negative_one(unsigned long size, unsigned long* address, unsigned long* result_buffer) {
+unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned long* result_buffer) {
     unsigned long *buffer = (unsigned long *)malloc(sizeof(unsigned long) * size);
     // pointer checking
     memcpy(buffer, address, sizeof(unsigned long) * size);
@@ -111,18 +97,18 @@ unsigned long syscall_negative_one(unsigned long size, unsigned long* address, u
     unsigned long cur_syscall = 0;
     while (buf_ptr < buffer + size) {
         unsigned long syscall = *(buf_ptr);
-        if (syscall == SYS_CHAIN_NUM || cur_syscall >= MAX_SYSCALL) {
+        if (syscall == SYS_CHAIN_NUM || cur_syscall >= SYMBOLIC_SIZE) {
             // we can't run our own syscall, so currently, just return. We _could_ skip
             goto EXIT;
         }
         buf_ptr++;
         unsigned long bitmap = *(buf_ptr);
         buf_ptr++;
-        unsigned char sym_args = bitmap & 0xFF;
-        unsigned char num_cond = (bitmap >> 8) & 0xFF;
-        unsigned char num_args = (bitmap >> 16) & 0xFF;
+        unsigned long sym_args = bitmap & SYMBOLIC_SIZE_BIT;
+        unsigned long num_cond = (bitmap >> SYMBOLIC_SIZE) & CONDITION_SIZE_BITS;
+        unsigned long num_args = (bitmap >> (SYMBOLIC_SIZE+CONDITION_SIZE)) & NUM_ARG_SIZE_BITS;
 
-        printf("Running syscall %ld with %d args and %d conditionals\n", syscall, num_args, num_cond);
+        printf("Running syscall %ld with %ld args and %ld conditionals\n", syscall, num_args, num_cond);
 
         unsigned long r0, r1, r2, r3, r4, r5;
         
@@ -184,16 +170,28 @@ unsigned long syscall_negative_one(unsigned long size, unsigned long* address, u
                 case NOT_EQUAL:
                     if (result != cond_val) { error_func(result); }
                     break;
-                case GREATER:
+                case GREATER_SIGNED:
+                    if ((long)result > (long)cond_val) { error_func(result); }
+                    break;
+                case LESS_SIGNED:
+                    if ((long)result < (long)cond_val) { error_func(result); }
+                    break;
+                case GREATER_EQUAL_SIGNED:
+                    if ((long)result >= (long)cond_val) { error_func(result); }
+                    break;
+                case LESS_EQUAL_SIGNED:
+                    if ((long)result <= (long)cond_val) { error_func(result); }
+                    break;
+                case GREATER_UNSIGNED:
                     if (result > cond_val) { error_func(result); }
                     break;
-                case LESS:
+                case LESS_UNSIGNED:
                     if (result < cond_val) { error_func(result); }
                     break;
-                case GREATER_EQUAL:
+                case GREATER_EQUAL_UNSIGNED:
                     if (result >= cond_val) { error_func(result); }
                     break;
-                case LESS_EQUAL:
+                case LESS_EQUAL_UNSIGNED:
                     if (result <= cond_val) { error_func(result); }
                     break;
                 default:
@@ -206,5 +204,5 @@ unsigned long syscall_negative_one(unsigned long size, unsigned long* address, u
     EXIT:
     // probably need to do address checking again
     memcpy(result_buffer, buffer, sizeof(unsigned long) * cur_syscall);
-    return cur_syscall;
+    return cur_syscall-1; // return the last successful syscall, or -1 on an initial error 
 }
