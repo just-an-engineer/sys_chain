@@ -15,22 +15,31 @@
 #include "syscall.h"
 
 #define SYS_CHAIN_NUM 500
-#define NUM_ARG_SIZE_BITS (1UL << NUM_ARG_SIZE) - 1
-#define CONDITION_SIZE_BITS (1UL << CONDITION_SIZE) - 1
+#define NUM_ARG_SIZE_BITS ((1UL << NUM_ARG_SIZE) - 1)
+#define CONDITION_SIZE_BITS ((1UL << CONDITION_SIZE) - 1)
+#define SYMBOLIC_SIZE_BIT ((1UL << SYMBOLIC_SIZE) - 1)
 
 #define SET_REGISTER(n, register) \
-    if ((sym_args >> n) & 1) { \
+    if ((sym_args >> (n)) & 1) { \
         if (*(buf_ptr) >= cur_syscall) { goto EXIT; } \
         value = buffer[*(buf_ptr)]; \
         printf("Symbolic value detected, setting register %d to 0x%lx, result of %ld\n", n, value, *(buf_ptr)); \
     } else { \
         value = *(buf_ptr); \
-        printf("Setting register %d to 0x%lx\n", n, value); \
     } \
     register = value; \
     num_args--; \
-    buf_ptr++;
+    buf_ptr--;
 
+#ifdef __x86_64__
+    #define SYSCALL asm("syscall");
+#elif defined(__aarch64__)
+    #define SYSCALL asm("svc 0");
+#elif defined(__arm__)
+    #define SYSCALL asm("swi 0");
+#else
+    #error "Unsupported architecture."
+#endif
 
 #if defined(__x86_64__)
     #define DO_SYSCALL(result_var, syscall_number, arg1, arg2, arg3, arg4, arg5, arg6) \
@@ -89,6 +98,7 @@
 
 
 unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned long* result_buffer) {
+    // TODO: verbose vs quiet mode. In production, likely remove all print statements, but for time being (v0), we can keep them
     unsigned long *buffer = (unsigned long *)malloc(sizeof(unsigned long) * size);
     // pointer checking
     memcpy(buffer, address, sizeof(unsigned long) * size);
@@ -107,95 +117,113 @@ unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned
         unsigned long sym_args = bitmap & SYMBOLIC_SIZE_BIT;
         unsigned long num_cond = (bitmap >> SYMBOLIC_SIZE) & CONDITION_SIZE_BITS;
         unsigned long num_args = (bitmap >> (SYMBOLIC_SIZE+CONDITION_SIZE)) & NUM_ARG_SIZE_BITS;
+        const unsigned long num_args_copy = num_args;
 
-        printf("Running syscall %ld with %ld args and %ld conditionals\n", syscall, num_args, num_cond);
+        printf("Setting up syscall %ld with %ld arg(s), %ld conditional(s), and a bitmap of 0x%lx\n", syscall, num_args, num_cond, bitmap);
 
-        unsigned long r0, r1, r2, r3, r4, r5;
+        unsigned long r0, r1, r2, r3, r4, r5 = 0;
         
-        while (num_args > 0) {
-            unsigned long value;
-            switch (num_args) {
-                case 6:
-                    SET_REGISTER(5, r5);
-                case 5:
-                    SET_REGISTER(4, r4);
-                case 4:
-                    SET_REGISTER(3, r3);
-                case 3:
-                    SET_REGISTER(2, r2);
-                case 2:
-                    SET_REGISTER(1, r1);
-                case 1:
-                    SET_REGISTER(0, r0);
-                case 0:
-                    break;
-                default:
-                    // illegal number of arguments
-                    goto EXIT;
-            }
+        unsigned long value;
+        buf_ptr += num_args-1;
+        switch (num_args) {
+            case 6:
+                SET_REGISTER(5, r5);
+            case 5:
+                SET_REGISTER(4, r4);
+            case 4:
+                SET_REGISTER(3, r3);
+            case 3:
+                SET_REGISTER(2, r2);
+            case 2:
+                SET_REGISTER(1, r1);
+            case 1:
+                SET_REGISTER(0, r0);
+            case 0:
+                break;
+            default:
+                // illegal number of arguments
+                goto EXIT;
         }
+        buf_ptr += num_args_copy+1;
 
         // this is where we would jump to the syscall function in the syscall table
         if (buf_ptr > buffer + size) { // check if we've gone over the buffer
             goto EXIT;
         }
-        printf("Running syscall %ld with args:\n\tr0: 0x%lx\n\tr1:0x%lx\n\tr2:0x%lx\n\tr3:0x%lx\n\tr4:0x%lx\n\tr50x%lx\n", syscall, r0, r1, r2, r3, r4, r5);
+        printf("Running syscall %ld with args:\n\tr0: 0x%lx\n\tr1: 0x%lx\n\tr2: 0x%lx\n\tr3: 0x%lx\n\tr4: 0x%lx\n\tr5: 0x%lx\n", syscall, r0, r1, r2, r3, r4, r5);
         unsigned long result;
         DO_SYSCALL(result, syscall, r0, r1, r2, r3, r4, r5);
         buffer[cur_syscall] = result;
+        printf("Result: 0x%lx, saved to index %ld\n", result, cur_syscall);
         cur_syscall++;
-        printf("Result: 0x%lx, saved to %ld\n", result, cur_syscall);
         
         void (*error_func)(unsigned long) = (void (*)(unsigned long int))*(buf_ptr);
         buf_ptr++;
 
-        short cond[num_cond];
+        unsigned short cond[num_cond];
 
         for (int j = 0; j < num_cond;) {
             unsigned long cond_val = *(buf_ptr);
             buf_ptr++;
-            j<num_cond ? cond[j] = cond_val & 0xFF : 0;
+            j<num_cond ? cond[j] = cond_val & CONDITION_SIZE_BITS : 0;
             j++;
-            j<num_cond ? cond[j] = (cond_val >> sizeof(short)) & 0xFF : 0;
+            j<num_cond ? cond[j] = (cond_val >> CONDITION_SIZE) & CONDITION_SIZE_BITS : 0;
             j++;
         }
 
+        // Future TODOs: be able to use symbolic cond_vals to use previous syscall results in the current comparison
         for (int j = 0; j < num_cond; j++) {
             unsigned long cond_val = *(buf_ptr);     buf_ptr++;
+            printf("Testing if %ld ( when compared to %ld) is ", result, cond_val);
             switch (cond[j]) {
                 // this is where we would overwrite the rip or instruction pointer in the saved context, and return to userspace
+                #define RET_TO_USER_ERROR   if (error_func != 0x0) {goto EXIT;} \
+                                            free(buffer); \
+                                            memcpy(result_buffer, buffer, sizeof(unsigned long) * cur_syscall); \
+                                            error_func(result); 
                 case EQUAL:
-                    if (result == cond_val) { error_func(result); }
+                    printf("equal\n");
+                    if (result == cond_val) { RET_TO_USER_ERROR }
                     break;
                 case NOT_EQUAL:
-                    if (result != cond_val) { error_func(result); }
+                    printf("not equal\n");
+                    if (result != cond_val) { RET_TO_USER_ERROR }
                     break;
                 case GREATER_SIGNED:
-                    if ((long)result > (long)cond_val) { error_func(result); }
+                    printf("greater than, signed\n");
+                    if ((long)result > (long)cond_val) { RET_TO_USER_ERROR }
                     break;
                 case LESS_SIGNED:
-                    if ((long)result < (long)cond_val) { error_func(result); }
+                    printf("less than, signed\n");
+                    if ((long)result < (long)cond_val) { RET_TO_USER_ERROR }
                     break;
                 case GREATER_EQUAL_SIGNED:
-                    if ((long)result >= (long)cond_val) { error_func(result); }
+                    printf("greater than or equal to, signed\n");
+                    if ((long)result >= (long)cond_val) { RET_TO_USER_ERROR }
                     break;
                 case LESS_EQUAL_SIGNED:
-                    if ((long)result <= (long)cond_val) { error_func(result); }
+                    printf("less than or equal to, signed\n");
+                    if ((long)result <= (long)cond_val) { RET_TO_USER_ERROR }
                     break;
                 case GREATER_UNSIGNED:
-                    if (result > cond_val) { error_func(result); }
+                    printf("greater than, unsigned\n");
+                    if (result > cond_val) { RET_TO_USER_ERROR }
                     break;
                 case LESS_UNSIGNED:
-                    if (result < cond_val) { error_func(result); }
+                    printf("less than, unsigned\n");
+                    if (result < cond_val) { RET_TO_USER_ERROR }
                     break;
                 case GREATER_EQUAL_UNSIGNED:
-                    if (result >= cond_val) { error_func(result); }
+                    printf("greater than or equal to, unsigned\n");
+                    if (result >= cond_val) { RET_TO_USER_ERROR }
                     break;
                 case LESS_EQUAL_UNSIGNED:
-                    if (result <= cond_val) { error_func(result); }
+                    printf("less than or equal to, unsigned\n");
+                    if (result <= cond_val) { RET_TO_USER_ERROR }
                     break;
                 default:
                     // illegal conditional
+                    printf("... actually, illegal comparison, conditional not found\n");
                     goto EXIT;
             }
         }
@@ -203,6 +231,7 @@ unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned
     }
     EXIT:
     // probably need to do address checking again
-    memcpy(result_buffer, buffer, sizeof(unsigned long) * cur_syscall);
+    memcpy(result_buffer, buffer, sizeof(unsigned long) * (cur_syscall+1));
+    free(buffer);
     return cur_syscall-1; // return the last successful syscall, or -1 on an initial error 
 }
