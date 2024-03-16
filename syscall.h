@@ -4,7 +4,7 @@
 
 #include <stdio.h>
 
-long syscall_negative_one(long size, long* address);
+unsigned long syscall_negative_one(unsigned long size, unsigned long* address, unsigned long* result_buffer);
 
 enum conditional_check {
     EQUAL,

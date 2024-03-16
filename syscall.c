@@ -1,23 +1,24 @@
 // struct layout:
-// long syscall
-// long bitmap // [symbolic arguments][num of conditionals][number of arguments]
+// unsigned long syscall
+// unsigned long bitmap // [symbolic arguments][num of conditionals][number of arguments]
     // in this case we just use a char for each arg, and leave the remaining 5 bytes on 64 bit systems for future use
     // in reality, this can be optimized for each segment
     // the bitmap will likely be architecture size dependent
-// long args
+// unsigned long args
 // ...
     // the args need to be in reverse order, for ease of programming, currently
 // error function address
-// conditional enums, 2 per byte, no spilling between bytes. There is 1 long for every 8 conditionals
+// conditional enums, 2 per byte, no spilling between bytes. There is 1 unsigned long for every 8 conditionals
 // conditional values to compare against
 
-// #define x86_64
+#include <stdlib.h>
 #include "syscall.h"
 
+#define SYS_CHAIN_NUM 500
 
 #define SET_REGISTER(n, register) \
     if ((sym_args >> n) & 1) { \
-        if (*(buf_ptr) > size) { return -1; } \
+        if (*(buf_ptr) >= cur_syscall) { goto EXIT; } \
         value = buffer[*(buf_ptr)]; \
         printf("Symbolic value detected, setting register %d to 0x%lx, result of %ld\n", n, value, *(buf_ptr)); \
     } else { \
@@ -28,11 +29,17 @@
     num_args--; \
     buf_ptr++;
 
+// N bit - 3 for num_args - 3 for conditionals
 #ifdef __x86_64__
     #define SYSCALL asm("syscall");
+    #define MAX_SYSCALL 64-3-3 
 #elif defined(__aarch64__)
+    #define SYSCALL asm("syscall");
+    #define MAX_SYSCALL 64-3-3
     #define SYSCALL asm("svc 0");
 #elif defined(__arm__)
+    #define SYSCALL asm("syscall");
+    #define MAX_SYSCALL 32-3-3
     #define SYSCALL asm("swi 0");
 #else
     #error "Unsupported architecture."
@@ -95,27 +102,32 @@
 #endif
 
 
-long syscall_negative_one(long size, long* address) {
-    long buffer[size]; // likely need to actually place on the heap due to potential size
+unsigned long syscall_negative_one(unsigned long size, unsigned long* address, unsigned long* result_buffer) {
+    unsigned long *buffer = (unsigned long *)malloc(sizeof(unsigned long) * size);
     // pointer checking
-    memcpy(buffer, address, sizeof(long) * size);
+    memcpy(buffer, address, sizeof(unsigned long) * size);
 
-    long result_buffer[size];
-
-    long *buf_ptr = buffer;
-    for (long i = 0; i < size; i++) {
-        long syscall = *(buf_ptr);      buf_ptr++;
-        long bitmap = *(buf_ptr);       buf_ptr++;
+    unsigned long *buf_ptr = buffer;
+    unsigned long cur_syscall = 0;
+    while (buf_ptr < buffer + size) {
+        unsigned long syscall = *(buf_ptr);
+        if (syscall == SYS_CHAIN_NUM || cur_syscall >= MAX_SYSCALL) {
+            // we can't run our own syscall, so currently, just return. We _could_ skip
+            goto EXIT;
+        }
+        buf_ptr++;
+        unsigned long bitmap = *(buf_ptr);
+        buf_ptr++;
         unsigned char sym_args = bitmap & 0xFF;
         unsigned char num_cond = (bitmap >> 8) & 0xFF;
         unsigned char num_args = (bitmap >> 16) & 0xFF;
 
         printf("Running syscall %ld with %d args and %d conditionals\n", syscall, num_args, num_cond);
 
-        long r0, r1, r2, r3, r4, r5;
+        unsigned long r0, r1, r2, r3, r4, r5;
         
         while (num_args > 0) {
-            long value;
+            unsigned long value;
             switch (num_args) {
                 case 6:
                     SET_REGISTER(5, r5);
@@ -133,35 +145,37 @@ long syscall_negative_one(long size, long* address) {
                     break;
                 default:
                     // illegal number of arguments
-                    return -1;
+                    goto EXIT;
             }
         }
 
         // this is where we would jump to the syscall function in the syscall table
-        // #define DO_SYSCALL(result_var, syscall_number, arg1, arg2, arg3, arg4, arg5, arg6)
+        if (buf_ptr > buffer + size) { // check if we've gone over the buffer
+            goto EXIT;
+        }
         printf("Running syscall %ld with args:\n\tr0: 0x%lx\n\tr1:0x%lx\n\tr2:0x%lx\n\tr3:0x%lx\n\tr4:0x%lx\n\tr50x%lx\n", syscall, r0, r1, r2, r3, r4, r5);
-        long result;
+        unsigned long result;
         DO_SYSCALL(result, syscall, r0, r1, r2, r3, r4, r5);
-        buffer[i] = result;
-        printf("Result: 0x%lx, saved to %ld\n", result, i);
+        buffer[cur_syscall] = result;
+        cur_syscall++;
+        printf("Result: 0x%lx, saved to %ld\n", result, cur_syscall);
         
-        // function pointer
-        void (*error_func)(long) = (void (*)(long int))*(buf_ptr);
+        void (*error_func)(unsigned long) = (void (*)(unsigned long int))*(buf_ptr);
         buf_ptr++;
 
         short cond[num_cond];
 
         for (int j = 0; j < num_cond;) {
-            long cond_val = *(buf_ptr);
+            unsigned long cond_val = *(buf_ptr);
             buf_ptr++;
             j<num_cond ? cond[j] = cond_val & 0xFF : 0;
             j++;
-            j<num_cond ? cond[j] = (cond_val >> sizeof(short)) & 0xFFFF : 0;
+            j<num_cond ? cond[j] = (cond_val >> sizeof(short)) & 0xFF : 0;
             j++;
         }
 
         for (int j = 0; j < num_cond; j++) {
-            long cond_val = *(buf_ptr);     buf_ptr++;
+            unsigned long cond_val = *(buf_ptr);     buf_ptr++;
             switch (cond[j]) {
                 // this is where we would overwrite the rip or instruction pointer in the saved context, and return to userspace
                 case EQUAL:
@@ -184,9 +198,13 @@ long syscall_negative_one(long size, long* address) {
                     break;
                 default:
                     // illegal conditional
-                    return -1;
+                    goto EXIT;
             }
         }
         printf("\n");
     }
+    EXIT:
+    // probably need to do address checking again
+    memcpy(result_buffer, buffer, sizeof(unsigned long) * cur_syscall);
+    return cur_syscall;
 }
