@@ -5,18 +5,8 @@
 #include <stdio.h>
 
 #define NUM_ARG_SIZE 3
-#define CONDITION_SIZE 4
-
-
-#ifdef __x86_64__
-    #define SYMBOLIC_SIZE (64 - NUM_ARG_SIZE - CONDITION_SIZE)
-#elif defined(__aarch64__)
-    #define SYMBOLIC_SIZE (64 - NUM_ARG_SIZE - CONDITION_SIZE)
-#elif defined(__arm__)
-    #define SYMBOLIC_SIZE (32 - NUM_ARG_SIZE - CONDITION_SIZE)
-#else
-    #error "Unsupported architecture."
-#endif
+#define CONDITION_SIZE 3
+#define SYMBOLIC_SIZE 6
 
 // you still need to define the bitmap of symbolic values
 #define BITMAP_CREATOR(num_args, num_conditionals, symbolic_values) \

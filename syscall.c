@@ -33,10 +33,13 @@
 
 #ifdef __x86_64__
     #define SYSCALL asm("syscall");
+    #define _64_BIT 1
 #elif defined(__aarch64__)
     #define SYSCALL asm("svc 0");
+    #define _64_BIT 1
 #elif defined(__arm__)
     #define SYSCALL asm("swi 0");
+    #define _64_BIT 0
 #else
     #error "Unsupported architecture."
 #endif
@@ -160,15 +163,34 @@ unsigned long syscall_chain(unsigned long size, unsigned long* address, unsigned
         void (*error_func)(unsigned long) = (void (*)(unsigned long int))*(buf_ptr);
         buf_ptr++;
 
-        unsigned short cond[num_cond];
+        unsigned char cond[num_cond];
+        unsigned char mask = 0b1111;
 
         for (int j = 0; j < num_cond;) {
+            #define GET_N_CONDITIONAL(n) \
+                j<num_cond ? cond[j] = (cond_val >> (n * 4)) & mask : 0; \
+                j++;
             unsigned long cond_val = *(buf_ptr);
             buf_ptr++;
-            j<num_cond ? cond[j] = cond_val & CONDITION_SIZE_BITS : 0;
-            j++;
-            j<num_cond ? cond[j] = (cond_val >> CONDITION_SIZE) & CONDITION_SIZE_BITS : 0;
-            j++;
+            
+            GET_N_CONDITIONAL(0);
+            GET_N_CONDITIONAL(1);
+            GET_N_CONDITIONAL(2);
+            GET_N_CONDITIONAL(3);
+            GET_N_CONDITIONAL(4);
+            GET_N_CONDITIONAL(5);
+            GET_N_CONDITIONAL(6);
+            GET_N_CONDITIONAL(7);
+            #if _64_BIT
+                GET_N_CONDITIONAL(8);
+                GET_N_CONDITIONAL(9);
+                GET_N_CONDITIONAL(10);
+                GET_N_CONDITIONAL(11);
+                GET_N_CONDITIONAL(12);
+                GET_N_CONDITIONAL(13);
+                GET_N_CONDITIONAL(14);
+                GET_N_CONDITIONAL(15);
+            #endif
         }
 
         // Future TODOs: be able to use symbolic cond_vals to use previous syscall results in the current comparison
