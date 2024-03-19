@@ -24,6 +24,7 @@ You can define a function to go to in the case of one of your conditionals being
 - Do more testing of conditionals, such as having multiple (which I have not done)
 - Make a better way to handle errors in conditionals. I don't like necessarily jumping to functions (which currently, if those functions return, would jump back into the syscall code, but that's because it's userspace code, in kernelspace we could overwrite rip or something).
 - Make some code that implements and tests it in the Linux kernel
+- Do it again in Rust, for the funsies
 - Add a compiler pass. See below
 
 # Compiler pass
