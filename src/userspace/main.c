@@ -1,38 +1,37 @@
 #include <stdio.h>
 #include <stdlib.h>
-// #include <sys/types.h>
-// #include <sys/stat.h>
 #include <fcntl.h>
-#include "syscall.h"
+
+#include "../userspace/syscall.h"
 
 // still need to check conditionals fully
 
 void open_error(unsigned long error) {
-    printf("open error: %ld\n", error);
+    printd("open error: %ld\n", error);
     exit(1);
 }
 void read_error(unsigned long error) {
-    printf("read error: %ld\n", error);
+    printd("read error: %ld\n", error);
     exit(1);
 }
 void write_error(unsigned long error) {
-    printf("write error: %ld\n", error);
+    printd("write error: %ld\n", error);
     exit(1);
 }
 void close_error(unsigned long error) {
-    printf("close error: %ld\n", error);
+    printd("close error: %ld\n", error);
     exit(1);
 }
 
 int main() {
     char filename[] = "test.txt";
-    printf("Filename address: %p\n", filename);
+    printd("Filename address: %p\n", filename);
     char replace_test[] = "replace!";
-    printf("Replace_test address: %p\n", replace_test);
+    printd("Replace_test address: %p\n", replace_test);
     char *buffer = malloc(16);
-    printf("Buffer address: %p\n\n", buffer);
+    printd("Buffer address: %p\n\n", buffer);
     unsigned long result_buf[4];
-
+    // print address of all error functions
 
     unsigned long syscall[] = {
         2, // syscall open
@@ -72,9 +71,9 @@ int main() {
 
     syscall_chain(sizeof(syscall)/sizeof(unsigned long), syscall, result_buf);
     
-    printf("Ran syscall\n");
-    printf("Buffer contains %s\n", buffer);
+    printd("Ran syscall\n");
+    printd("Buffer contains %s\n", buffer);
     for (int i=0; i<4; i++) {
-        printf("Syscall %d gave result %ld\n", i, result_buf[i]);
+        printd("Syscall %d gave result %ld\n", i, result_buf[i]);
     }
 }
