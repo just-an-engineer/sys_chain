@@ -21,14 +21,19 @@ So following the example in `main.c`, the last 3 syscalls use the return value o
 You can define a function to go to in the case of one of your conditionals being true. After a syscall is made, it runs through all conditionals, testing them. If the error function is 0 (or null), then it simply returns. 
 
 # Work to do
-- Do more testing of conditionals, such as having multiple (which I have not done)
-- Make a better way to handle errors in conditionals. I don't like necessarily jumping to functions (which currently, if those functions return, would jump back into the syscall code, but that's because it's userspace code, in kernelspace we could overwrite rip or something).
-- Make some code that implements and tests it in the Linux kernel
-- Do it again in Rust, for the funsies
-- Add a compiler pass. See below
-
-# Compiler pass
-Ultimately, this work is useless if 1 of 2 things do not happen. 1, programmers manually write the code to use this syscall by hand. Which is very much error prone, and uses lots of static values that can increase either config or const sections, or is a place you need to keep in mind for updating. Or 2, we make a compiler pass that can detect syscalls made, and which ones can be combined, by analyzing what syscalls depend on further userspace calculation of return values, or later objects. We would need to have a way to detect error checking after syscalls.
+- [ ] Do more testing of conditionals, such as having multiple (which I have not done)
+- [ ] Make a better way to handle errors in conditionals. I don't like necessarily jumping to functions (which currently, if those functions return, would jump back into the syscall code, but that's because it's userspace code, in kernelspace we could overwrite rip or something).
+- [ ] Fix file and directory organization, improve Makefiles, etc. This current organization is the result of me wanting to break up functionality out of just 1 file, but messing up terribly in the process. However, it was such a process debugging small things that resulted from breaking it into files
+  - [ ] I also want to make an internal directory, and external/include API/header, so programmers can use constant functions, compile time stuff, or macro stuff to set up the syscall. IE, look at src/userspace/main.c for the LESS_SIGNED, BITMAP_CREATOR, etc. These need to be able to be imported and used in userspace (when this program is in the kernel), but they don't need access to the actual function and all those internal mechanics.
+- [ ] Test theoretical performance gains
+  - [ ] Write a test case that just calls a fast, non-blocking, etc, syscall, a few billion times. Time it and divide by number of calls to get average time per syscall
+    - _Note: I need to try setting the nice value and other things to avoid the thread being preempted, but I'll explore more into that later_
+- [ ] Implement locally
+  - [ ] Build out 2 files with identical functionalities
+  - [ ] Add the syscall to a local kernel, and compile
+  - [ ] Run the test case on both, and compare
+  - [ ] This will likely need to be implemented (if trying to do in real-world), in standard libraries, or directly via the provided macros. I don't think you can rely on compiler plugins to be able to scan for certain syscalls (without hardcoding the names of the syscall functions provided by your stdlib, the logic for dependencies, etc). Although you _could_, and it would make it more usable, but would be very libc specific, and then you get into a whole other area of shenanigans. Go for it if you want, though. But next steps in real world implementations would add to custom c libaries, after adding to any desired kernels
+- [ ] Do it again in Rust, for the funsies
 
 # How to contribute
 Feel free to fork and make a PR, or start an issue for cool features, bugs, security issues, or anything else. Be courteous
